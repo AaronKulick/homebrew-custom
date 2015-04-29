@@ -1,6 +1,164 @@
-diff -rNuwpB canonical/auth2.c kitchen/auth2.c
---- canonical/auth2.c	2012-12-02 17:53:20.000000000 -0500
-+++ kitchen/auth2.c	2013-08-14 14:59:53.375421108 -0400
+diff --git a/HPN-README b/HPN-README
+new file mode 100644
+index 0000000..7cb3b97
+--- /dev/null
++++ b/HPN-README
+@@ -0,0 +1,129 @@
++Notes:
++
++MULTI-THREADED CIPHER:
++The AES cipher in CTR mode has been multithreaded (MTR-AES-CTR). This will allow ssh installations
++on hosts with multiple cores to use more than one processing core during encryption. 
++Tests have show significant throughput performance increases when using MTR-AES-CTR up 
++to and including a full gigabit per second on quad core systems. It should be possible to 
++achieve full line rate on dual core systems but OS and data management overhead makes this
++more difficult to achieve. The cipher stream from MTR-AES-CTR is entirely compatible with single 
++thread AES-CTR (ST-AES-CTR) implementations and should be 100% backward compatible. Optimal 
++performance requires the MTR-AES-CTR mode be enabled on both ends of the connection. 
++The MTR-AES-CTR replaces ST-AES-CTR and is used in exactly the same way with the same
++nomenclature. 
++Use examples: 	ssh -caes128-ctr you@host.com
++		scp -oCipher=aes256-ctr file you@host.com:~/file
++
++NONE CIPHER:
++To use the NONE option you must have the NoneEnabled switch set on the server and
++you *must* have *both* NoneEnabled and NoneSwitch set to yes on the client. The NONE
++feature works with ALL ssh subsystems (as far as we can tell) *AS LONG AS* a tty is not 
++spawned. If a user uses the -T switch to prevent a tty being created the NONE cipher will
++be disabled. 
++
++The performance increase will only be as good as the network and TCP stack tuning
++on the reciever side of the connection allows. As a rule of thumb a user will need 
++at least 10Mb/s connection with a 100ms RTT to see a doubling of performance. The
++HPN-SSH home page describes this in greater detail. 
++
++http://www.psc.edu/networking/projects/hpn-ssh
++
++BUFFER SIZES:
++
++If HPN is disabled the receive buffer size will be set to the 
++OpenSSH default of 64K.
++
++If an HPN system connects to a nonHPN system the receive buffer will
++be set to the HPNBufferSize value. The default is 2MB but user adjustable.
++
++If an HPN to HPN connection is established a number of different things might
++happen based on the user options and conditions. 
++
++Conditions: HPNBufferSize NOT Set, TCPRcvBufPoll enabled, TCPRcvBuf NOT Set 
++HPN Buffer Size = up to 64MB 
++This is the default state. The HPN buffer size will grow to a maximum of 64MB 
++as the TCP receive buffer grows. The maximum HPN Buffer size of 64MB is 
++geared towards 10GigE transcontinental connections. 
++
++Conditions: HPNBufferSize NOT Set, TCPRcvBufPoll disabled, TCPRcvBuf NOT Set
++HPN Buffer Size = TCP receive buffer value. 
++Users on non-autotuning systesm should disable TCPRcvBufPoll in the 
++ssh_cofig and sshd_config
++
++Conditions: HPNBufferSize SET, TCPRcvBufPoll disabled, TCPRcvBuf NOT Set
++HPN Buffer Size = minmum of TCP receive buffer and HPNBufferSize. 
++This would be the system defined TCP receive buffer (RWIN).
++
++Conditions: HPNBufferSize SET, TCPRcvBufPoll disabled, TCPRcvBuf SET
++HPN Buffer Size = minmum of TCPRcvBuf and HPNBufferSize. 
++Generally there is no need to set both.
++
++Conditions: HPNBufferSize SET, TCPRcvBufPoll enabled, TCPRcvBuf NOT Set
++HPN Buffer Size = grows to HPNBufferSize
++The buffer will grow up to the maximum size specified here. 
++
++Conditions: HPNBufferSize SET, TCPRcvBufPoll enabled, TCPRcvBuf SET
++HPN Buffer Size = minmum of TCPRcvBuf and HPNBufferSize. 
++Generally there is no need to set both of these, especially on autotuning 
++systems. However, if the users wishes to override the autotuning this would be 
++one way to do it.
++
++Conditions: HPNBufferSize NOT Set, TCPRcvBufPoll enabled, TCPRcvBuf SET
++HPN Buffer Size = TCPRcvBuf. 
++This will override autotuning and set the TCP recieve buffer to the user defined 
++value.
++
++
++HPN Specific Configuration options
++
++TcpRcvBuf=[int]KB client
++      set the TCP socket receive buffer to n Kilobytes. It can be set up to the 
++maximum socket size allowed by the system. This is useful in situations where 
++the tcp receive window is set low but the maximum buffer size is set 
++higher (as is typical). This works on a per TCP connection basis. You can also 
++use this to artifically limit the transfer rate of the connection. In these 
++cases the throughput will be no more than n/RTT. The minimum buffer size is 1KB. 
++Default is the current system wide tcp receive buffer size.
++
++TcpRcvBufPoll=[yes/no] client/server
++      enable of disable the polling of the tcp receive buffer through the life 
++of the connection. You would want to make sure that this option is enabled 
++for systems making use of autotuning kernels (linux 2.4.24+, 2.6, MS Vista) 
++default is yes.
++
++NoneEnabled=[yes/no] client/server
++      enable or disable the use of the None cipher. Care must always be used 
++when enabling this as it will allow users to send data in the clear. However, 
++it is important to note that authentication information remains encrypted 
++even if this option is enabled. Set to no by default.
++
++NoneSwitch=[yes/no] client
++     Switch the encryption cipher being used to the None cipher after
++authentication takes place. NoneEnabled must be enabled on both the client
++and server side of the connection. When the connection switches to the NONE
++cipher a warning is sent to STDERR. The connection attempt will fail with an
++error if a client requests a NoneSwitch from the server that does not explicitly
++have NoneEnabled set to yes. Note: The NONE cipher cannot be used in
++interactive (shell) sessions and it will fail silently. Set to no by default.
++
++HPNDisabled=[yes/no] client/server
++     In some situations, such as transfers on a local area network, the impact 
++of the HPN code produces a net decrease in performance. In these cases it is 
++helpful to disable the HPN functionality. By default HPNDisabled is set to no. 
++
++HPNBufferSize=[int]KB client/server
++     This is the default buffer size the HPN functionality uses when interacting
++with nonHPN SSH installations. Conceptually this is similar to the TcpRcvBuf
++option as applied to the internal SSH flow control. This value can range from 
++1KB to 64MB (1-65536). Use of oversized or undersized buffers can cause performance
++problems depending on the length of the network path. The default size of this buffer
++is 2MB.
++
++
++Credits: This patch was conceived, designed, and led by Chris Rapier (rapier@psc.edu)
++         The majority of the actual coding for versions up to HPN12v1 was performed
++         by Michael Stevens (mstevens@andrew.cmu.edu). The MT-AES-CTR cipher was 
++	 implemented by Ben Bennet (ben@psc.edu) and improved by Mike Tasota 
++	 (tasota@gmail.com) an NSF REU grant recipient for 2013. 
++	 This work was financed, in part, by Cisco System, Inc., the National 
++         Library of Medicine, and the National Science Foundation. 
+diff --git a/Makefile.in b/Makefile.in
+index 28a8ec4..c6b1a56 100644
+--- a/Makefile.in
++++ b/Makefile.in
+@@ -43,7 +43,7 @@ CC=@CC@
+ LD=@LD@
+ CFLAGS=@CFLAGS@
+ CPPFLAGS=-I. -I$(srcdir) @CPPFLAGS@ $(PATHS) @DEFS@
+-LIBS=@LIBS@
++LIBS=@LIBS@ -lpthread
+ K5LIBS=@K5LIBS@
+ GSSLIBS=@GSSLIBS@
+ SSHLIBS=@SSHLIBS@
+@@ -65,7 +65,7 @@ TARGETS=ssh$(EXEEXT) sshd$(EXEEXT) ssh-add$(EXEEXT) ssh-keygen$(EXEEXT) ssh-keys
+ 
+ LIBSSH_OBJS=authfd.o authfile.o bufaux.o bufbn.o buffer.o \
+ 	canohost.o channels.o cipher.o cipher-aes.o \
+-	cipher-bf1.o cipher-ctr.o cipher-3des1.o cleanup.o \
++	cipher-bf1.o cipher-ctr.o cipher-ctr-mt.o cipher-3des1.o cleanup.o \
+ 	compat.o compress.o crc32.o deattack.o fatal.o hostfile.o \
+ 	log.o match.o md-sha256.o moduli.o nchan.o packet.o \
+ 	readpass.o rsa.o ttymodes.o xmalloc.o addrmatch.o \
+diff --git a/auth2.c b/auth2.c
+index a5490c0..555661f 100644
+--- a/auth2.c
++++ b/auth2.c
 @@ -49,6 +49,7 @@
  #include "dispatch.h"
  #include "pathnames.h"
@@ -9,8 +167,8 @@ diff -rNuwpB canonical/auth2.c kitchen/auth2.c
  
  #ifdef GSSAPI
  #include "ssh-gss.h"
-@@ -75,6 +76,9 @@ extern Authmethod method_gssapi;
- extern Authmethod method_jpake;
+@@ -72,6 +73,9 @@ extern Authmethod method_hostbased;
+ extern Authmethod method_gssapi;
  #endif
  
 +static int log_flag = 0;
@@ -19,7 +177,7 @@ diff -rNuwpB canonical/auth2.c kitchen/auth2.c
  Authmethod *authmethods[] = {
  	&method_none,
  	&method_pubkey,
-@@ -227,6 +231,11 @@ input_userauth_request(int type, u_int32
+@@ -224,6 +228,11 @@ input_userauth_request(int type, u_int32_t seq, void *ctxt)
  	service = packet_get_cstring(NULL);
  	method = packet_get_cstring(NULL);
  	debug("userauth-request for user %s service %s method %s", user, service, method);
@@ -31,10 +189,11 @@ diff -rNuwpB canonical/auth2.c kitchen/auth2.c
  	debug("attempt %d failures %d", authctxt->attempt, authctxt->failures);
  
  	if ((style = strchr(user, ':')) != NULL)
-diff -rNuwpB canonical/buffer.c kitchen/buffer.c
---- canonical/buffer.c	2010-02-11 17:23:40.000000000 -0500
-+++ kitchen/buffer.c	2013-08-14 14:51:14.098260342 -0400
-@@ -127,7 +127,7 @@ restart:
+diff --git a/buffer.c b/buffer.c
+index d240f67..88e16d0 100644
+--- a/buffer.c
++++ b/buffer.c
+@@ -128,7 +128,7 @@ restart:
  
  	/* Increase the size of the buffer and retry. */
  	newlen = roundup(buffer->alloc + len, BUFFER_ALLOCSZ);
@@ -43,9 +202,10 @@ diff -rNuwpB canonical/buffer.c kitchen/buffer.c
  		fatal("buffer_append_space: alloc %u not supported",
  		    newlen);
  	buffer->buf = xrealloc(buffer->buf, 1, newlen);
-diff -rNuwpB canonical/buffer.h kitchen/buffer.h
---- canonical/buffer.h	2010-09-09 21:39:27.000000000 -0400
-+++ kitchen/buffer.h	2013-08-14 14:51:14.099265602 -0400
+diff --git a/buffer.h b/buffer.h
+index 7df8a38..244de01 100644
+--- a/buffer.h
++++ b/buffer.h
 @@ -16,6 +16,9 @@
  #ifndef BUFFER_H
  #define BUFFER_H
@@ -56,10 +216,11 @@ diff -rNuwpB canonical/buffer.h kitchen/buffer.h
  typedef struct {
  	u_char	*buf;		/* Buffer for data. */
  	u_int	 alloc;		/* Number of bytes allocated for data. */
-diff -rNuwpB canonical/channels.c kitchen/channels.c
---- canonical/channels.c	2012-12-02 17:50:55.000000000 -0500
-+++ kitchen/channels.c	2013-08-14 14:59:53.377419437 -0400
-@@ -173,8 +173,14 @@ static void port_open_helper(Channel *c,
+diff --git a/channels.c b/channels.c
+index 9efe89c..6d6d89c 100644
+--- a/channels.c
++++ b/channels.c
+@@ -173,8 +173,14 @@ static void port_open_helper(Channel *c, char *rtype);
  static int connect_next(struct channel_connect *);
  static void channel_connect_ctx_free(struct channel_connect *);
  
@@ -74,7 +235,7 @@ diff -rNuwpB canonical/channels.c kitchen/channels.c
  Channel *
  channel_by_id(int id)
  {
-@@ -319,6 +325,7 @@ channel_new(char *ctype, int type, int r
+@@ -323,6 +329,7 @@ channel_new(char *ctype, int type, int rfd, int wfd, int efd,
  	c->local_window_max = window;
  	c->local_consumed = 0;
  	c->local_maxpacket = maxpack;
@@ -82,7 +243,7 @@ diff -rNuwpB canonical/channels.c kitchen/channels.c
  	c->remote_id = -1;
  	c->remote_name = xstrdup(remote_name);
  	c->remote_window = 0;
-@@ -818,11 +825,35 @@ channel_pre_open_13(Channel *c, fd_set *
+@@ -819,11 +826,35 @@ channel_pre_open_13(Channel *c, fd_set *readset, fd_set *writeset)
  		FD_SET(c->sock, writeset);
  }
  
@@ -118,7 +279,7 @@ diff -rNuwpB canonical/channels.c kitchen/channels.c
  	if (c->istate == CHAN_INPUT_OPEN &&
  	    limit > 0 &&
  	    buffer_len(&c->input) < limit &&
-@@ -1806,14 +1837,21 @@ channel_check_window(Channel *c)
+@@ -1815,14 +1846,21 @@ channel_check_window(Channel *c)
  	    c->local_maxpacket*3) ||
  	    c->local_window < c->local_window_max/2) &&
  	    c->local_consumed > 0) {
@@ -142,7 +303,7 @@ diff -rNuwpB canonical/channels.c kitchen/channels.c
  		c->local_consumed = 0;
  	}
  	return 1;
-@@ -2173,11 +2211,12 @@ channel_after_select(fd_set *readset, fd
+@@ -2182,11 +2220,12 @@ channel_after_select(fd_set *readset, fd_set *writeset)
  
  
  /* If there is data to send to the connection, enqueue some of it now. */
@@ -156,16 +317,16 @@ diff -rNuwpB canonical/channels.c kitchen/channels.c
  
  	for (i = 0; i < channels_alloc; i++) {
  		c = channels[i];
-@@ -2225,7 +2264,7 @@ channel_output_poll(void)
+@@ -2234,7 +2273,7 @@ channel_output_poll(void)
  					packet_start(SSH2_MSG_CHANNEL_DATA);
  					packet_put_int(c->remote_id);
  					packet_put_string(data, dlen);
 -					packet_send();
 +					packet_length = packet_send();
  					c->remote_window -= dlen + 4;
- 					xfree(data);
+ 					free(data);
  				}
-@@ -2255,7 +2294,7 @@ channel_output_poll(void)
+@@ -2264,7 +2303,7 @@ channel_output_poll(void)
  				    SSH2_MSG_CHANNEL_DATA : SSH_MSG_CHANNEL_DATA);
  				packet_put_int(c->remote_id);
  				packet_put_string(buffer_ptr(&c->input), len);
@@ -174,7 +335,7 @@ diff -rNuwpB canonical/channels.c kitchen/channels.c
  				buffer_consume(&c->input, len);
  				c->remote_window -= len;
  			}
-@@ -2290,12 +2329,13 @@ channel_output_poll(void)
+@@ -2299,12 +2338,13 @@ channel_output_poll(void)
  			packet_put_int(c->remote_id);
  			packet_put_int(SSH2_EXTENDED_DATA_STDERR);
  			packet_put_string(buffer_ptr(&c->extended), len);
@@ -189,7 +350,7 @@ diff -rNuwpB canonical/channels.c kitchen/channels.c
  }
  
  
-@@ -2719,6 +2759,15 @@ channel_fwd_bind_addr(const char *listen
+@@ -2738,6 +2778,15 @@ channel_fwd_bind_addr(const char *listen_addr, int *wildcardp,
  	return addr;
  }
  
@@ -205,7 +366,7 @@ diff -rNuwpB canonical/channels.c kitchen/channels.c
  static int
  channel_setup_fwd_listener(int type, const char *listen_addr,
      u_short listen_port, int *allocated_listen_port,
-@@ -2845,9 +2894,15 @@ channel_setup_fwd_listener(int type, con
+@@ -2864,9 +2913,15 @@ channel_setup_fwd_listener(int type, const char *listen_addr,
  		}
  
  		/* Allocate a channel number for the socket. */
@@ -221,7 +382,7 @@ diff -rNuwpB canonical/channels.c kitchen/channels.c
  		c->path = xstrdup(host);
  		c->host_port = port_to_connect;
  		c->listening_addr = addr == NULL ? NULL : xstrdup(addr);
-@@ -3503,10 +3558,17 @@ x11_create_display_inet(int x11_display_
+@@ -3514,10 +3569,17 @@ x11_create_display_inet(int x11_display_offset, int x11_use_localhost,
  	*chanids = xcalloc(num_socks + 1, sizeof(**chanids));
  	for (n = 0; n < num_socks; n++) {
  		sock = socks[n];
@@ -239,10 +400,11 @@ diff -rNuwpB canonical/channels.c kitchen/channels.c
  		nc->single_connection = single_connection;
  		(*chanids)[n] = nc->self;
  	}
-diff -rNuwpB canonical/channels.h kitchen/channels.h
---- canonical/channels.h	2012-04-21 21:21:10.000000000 -0400
-+++ kitchen/channels.h	2013-08-14 14:59:53.379512190 -0400
-@@ -129,8 +129,10 @@ struct Channel {
+diff --git a/channels.h b/channels.h
+index 4fab9d7..8579356 100644
+--- a/channels.h
++++ b/channels.h
+@@ -132,8 +132,10 @@ struct Channel {
  	u_int	local_window_max;
  	u_int	local_consumed;
  	u_int	local_maxpacket;
@@ -253,21 +415,18 @@ diff -rNuwpB canonical/channels.h kitchen/channels.h
  
  	char   *ctype;		/* type */
  
-@@ -165,9 +167,11 @@ struct Channel {
- 
+@@ -169,8 +171,10 @@ struct Channel {
  /* default window/packet sizes for tcp/x11-fwd-channel */
  #define CHAN_SES_PACKET_DEFAULT	(32*1024)
--#define CHAN_SES_WINDOW_DEFAULT	(64*CHAN_SES_PACKET_DEFAULT)
-+#define CHAN_SES_WINDOW_DEFAULT	(4*CHAN_SES_PACKET_DEFAULT)
+ #define CHAN_SES_WINDOW_DEFAULT	(64*CHAN_SES_PACKET_DEFAULT)
 +
  #define CHAN_TCP_PACKET_DEFAULT	(32*1024)
--#define CHAN_TCP_WINDOW_DEFAULT	(64*CHAN_TCP_PACKET_DEFAULT)
-+#define CHAN_TCP_WINDOW_DEFAULT	(4*CHAN_TCP_PACKET_DEFAULT)
+ #define CHAN_TCP_WINDOW_DEFAULT	(64*CHAN_TCP_PACKET_DEFAULT)
 +
  #define CHAN_X11_PACKET_DEFAULT	(16*1024)
  #define CHAN_X11_WINDOW_DEFAULT	(4*CHAN_X11_PACKET_DEFAULT)
  
-@@ -242,7 +246,7 @@ void	 channel_input_status_confirm(int, 
+@@ -245,7 +249,7 @@ void	 channel_input_status_confirm(int, u_int32_t, void *);
  void	 channel_prepare_select(fd_set **, fd_set **, int *, u_int*,
  	     time_t*, int);
  void     channel_after_select(fd_set *, fd_set *);
@@ -276,7 +435,7 @@ diff -rNuwpB canonical/channels.h kitchen/channels.h
  
  int      channel_not_very_much_buffered_data(void);
  void     channel_close_all(void);
-@@ -303,4 +307,7 @@ void	 chan_rcvd_ieof(Channel *);
+@@ -306,4 +310,7 @@ void	 chan_rcvd_ieof(Channel *);
  void	 chan_write_failed(Channel *);
  void	 chan_obuf_empty(Channel *);
  
@@ -284,80 +443,11 @@ diff -rNuwpB canonical/channels.h kitchen/channels.h
 +void     channel_set_hpn(int, int);
 +
  #endif
-diff -rNuwpB canonical/cipher.c kitchen/cipher.c
---- canonical/cipher.c	2013-02-11 19:00:35.000000000 -0500
-+++ kitchen/cipher.c	2013-08-14 15:01:19.864449686 -0400
-@@ -55,6 +55,13 @@ extern const EVP_CIPHER *evp_ssh1_bf(voi
- extern const EVP_CIPHER *evp_ssh1_3des(void);
- extern void ssh1_3des_iv(EVP_CIPHER_CTX *, int, u_char *, int);
- 
-+/* for multi-threaded aes-ctr cipher */
-+extern const EVP_CIPHER *evp_aes_ctr_mt(void);
-+
-+/* no longer needed. replaced by evp pointer swap */
-+/* extern void ssh_aes_ctr_thread_destroy(EVP_CIPHER_CTX *ctx); */
-+/* extern void ssh_aes_ctr_thread_reconstruction(EVP_CIPHER_CTX *ctx); */
-+
- struct Cipher {
- 	char	*name;
- 	int	number;		/* for ssh1 only */
-@@ -98,6 +105,27 @@ struct Cipher {
- 
- /*--*/
- 
-+/* used to get the cipher name so when force rekeying to handle the 
-+ * single to multithreaded ctr cipher swap we only rekey when appropriate
-+*/
-+char *
-+cipher_return_name(const Cipher *c)
-+{
-+        return (c->name);
-+}
-+
-+/* in order to get around sandbox and forking issues with a threaded cipher
-+ * we set the initial pre-auth aes-ctr cipher to the default OpenSSH cipher
-+ * post auth we set them to the new evp as defined by cipher-ctr-mt
-+*/
-+void
-+cipher_reset_multithreaded()
-+{
-+  (cipher_by_name("aes128-ctr"))->evptype = evp_aes_ctr_mt;
-+  (cipher_by_name("aes192-ctr"))->evptype = evp_aes_ctr_mt;
-+  (cipher_by_name("aes256-ctr"))->evptype = evp_aes_ctr_mt;
-+}
-+
- u_int
- cipher_blocksize(const Cipher *c)
- {
-@@ -180,7 +208,8 @@ ciphers_valid(const char *names)
- 	for ((p = strsep(&cp, CIPHER_SEP)); p && *p != '\0';
- 	    (p = strsep(&cp, CIPHER_SEP))) {
- 		c = cipher_by_name(p);
--		if (c == NULL || c->number != SSH_CIPHER_SSH2) {
-+		if (c == NULL || (c->number != SSH_CIPHER_SSH2 &&
-+				  c->number != SSH_CIPHER_NONE)) {
- 			debug("bad cipher %s [%s]", p, names);
- 			xfree(cipher_list);
- 			return 0;
-@@ -406,6 +435,7 @@ cipher_get_keyiv(CipherContext *cc, u_ch
- 	int evplen;
- 
- 	switch (c->number) {
-+	case SSH_CIPHER_NONE:
- 	case SSH_CIPHER_SSH2:
- 	case SSH_CIPHER_DES:
- 	case SSH_CIPHER_BLOWFISH:
-@@ -442,6 +472,7 @@ cipher_set_keyiv(CipherContext *cc, u_ch
- 	int evplen = 0;
- 
- 	switch (c->number) {
-+	case SSH_CIPHER_NONE:
- 	case SSH_CIPHER_SSH2:
- 	case SSH_CIPHER_DES:
- 	case SSH_CIPHER_BLOWFISH:
-diff -rNuwpB canonical/cipher-ctr-mt.c kitchen/cipher-ctr-mt.c
---- canonical/cipher-ctr-mt.c	1969-12-31 19:00:00.000000000 -0500
-+++ kitchen/cipher-ctr-mt.c	2013-08-14 15:01:19.865415742 -0400
+diff --git a/cipher-ctr-mt.c b/cipher-ctr-mt.c
+new file mode 100644
+index 0000000..c13ddf0
+--- /dev/null
++++ b/cipher-ctr-mt.c
 @@ -0,0 +1,507 @@
 +/*
 + * OpenSSH Multi-threaded AES-CTR Cipher
@@ -840,7 +930,7 @@ diff -rNuwpB canonical/cipher-ctr-mt.c kitchen/cipher-ctr-mt.c
 +			pthread_join(c->tid[i], NULL);
 +
 +		memset(c, 0, sizeof(*c));
-+		xfree(c);
++		free(c);
 +		EVP_CIPHER_CTX_set_app_data(ctx, NULL);
 +	}
 +	return (1);
@@ -866,20 +956,124 @@ diff -rNuwpB canonical/cipher-ctr-mt.c kitchen/cipher-ctr-mt.c
 +#endif
 +	return (&aes_ctr);
 +}
-diff -rNuwpB canonical/cipher.h kitchen/cipher.h
---- canonical/cipher.h	2013-01-09 00:12:19.000000000 -0500
-+++ kitchen/cipher.h	2013-08-14 15:01:19.866419725 -0400
-@@ -69,6 +69,9 @@ struct CipherContext {
- 	Cipher *cipher;
+diff --git a/cipher.c b/cipher.c
+index 53d9b4f..24c285c 100644
+--- a/cipher.c
++++ b/cipher.c
+@@ -57,6 +57,13 @@ extern const EVP_CIPHER *evp_ssh1_bf(void);
+ extern const EVP_CIPHER *evp_ssh1_3des(void);
+ extern void ssh1_3des_iv(EVP_CIPHER_CTX *, int, u_char *, int);
+ 
++/* for multi-threaded aes-ctr cipher */
++extern const EVP_CIPHER *evp_aes_ctr_mt(void);
++
++/* no longer needed. replaced by evp pointer swap */
++/* extern void ssh_aes_ctr_thread_destroy(EVP_CIPHER_CTX *ctx); */
++/* extern void ssh_aes_ctr_thread_reconstruction(EVP_CIPHER_CTX *ctx); */
++
+ struct Cipher {
+ 	char	*name;
+ 	int	number;		/* for ssh1 only */
+@@ -71,7 +78,7 @@ struct Cipher {
+ 	const EVP_CIPHER	*(*evptype)(void);
+ };
+ 
+-static const struct Cipher ciphers[] = {
++static struct Cipher ciphers[] = {
+ 	{ "none",	SSH_CIPHER_NONE, 8, 0, 0, 0, 0, 0, EVP_enc_null },
+ 	{ "des",	SSH_CIPHER_DES, 8, 8, 0, 0, 0, 1, EVP_des_cbc },
+ 	{ "3des",	SSH_CIPHER_3DES, 8, 16, 0, 0, 0, 1, evp_ssh1_3des },
+@@ -106,6 +113,28 @@ static const struct Cipher ciphers[] = {
+ 
+ /*--*/
+ 
++/* used to get the cipher name so when force rekeying to handle the 
++ * single to multithreaded ctr cipher swap we only rekey when appropriate
++*/
++char *
++cipher_return_name(const Cipher *c)
++{
++        return (c->name);
++}
++
++/* in order to get around sandbox and forking issues with a threaded cipher
++ * we set the initial pre-auth aes-ctr cipher to the default OpenSSH cipher
++ * post auth we set them to the new evp as defined by cipher-ctr-mt
++*/
++
++void
++cipher_reset_multithreaded()
++{
++  (cipher_by_name("aes128-ctr"))->evptype = evp_aes_ctr_mt;
++  (cipher_by_name("aes192-ctr"))->evptype = evp_aes_ctr_mt;
++  (cipher_by_name("aes256-ctr"))->evptype = evp_aes_ctr_mt;
++}
++
+ /* Returns a list of supported ciphers separated by the specified char. */
+ char *
+ cipher_alg_list(char sep, int auth_only)
+@@ -190,7 +219,7 @@ cipher_mask_ssh1(int client)
+ 	return mask;
+ }
+ 
+-const Cipher *
++Cipher *
+ cipher_by_name(const char *name)
+ {
+ 	const Cipher *c;
+@@ -203,7 +232,7 @@ cipher_by_name(const char *name)
+ const Cipher *
+ cipher_by_number(int id)
+ {
+-	const Cipher *c;
++	Cipher *c;
+ 	for (c = ciphers; c->name != NULL; c++)
+ 		if (c->number == id)
+ 			return c;
+@@ -224,7 +253,8 @@ ciphers_valid(const char *names)
+ 	for ((p = strsep(&cp, CIPHER_SEP)); p && *p != '\0';
+ 	    (p = strsep(&cp, CIPHER_SEP))) {
+ 		c = cipher_by_name(p);
+-		if (c == NULL || c->number != SSH_CIPHER_SSH2) {
++		if (c == NULL || (c->number != SSH_CIPHER_SSH2 &&
++				  c->number != SSH_CIPHER_NONE)) {
+ 			debug("bad cipher %s [%s]", p, names);
+ 			free(cipher_list);
+ 			return 0;
+@@ -479,6 +509,7 @@ cipher_get_keyiv(CipherContext *cc, u_char *iv, u_int len)
+ 	}
+ 
+ 	switch (c->number) {
++	case SSH_CIPHER_NONE:
+ 	case SSH_CIPHER_SSH2:
+ 	case SSH_CIPHER_DES:
+ 	case SSH_CIPHER_BLOWFISH:
+@@ -518,6 +549,7 @@ cipher_set_keyiv(CipherContext *cc, u_char *iv)
+ 		return;
+ 
+ 	switch (c->number) {
++	case SSH_CIPHER_NONE:
+ 	case SSH_CIPHER_SSH2:
+ 	case SSH_CIPHER_DES:
+ 	case SSH_CIPHER_BLOWFISH:
+diff --git a/cipher.h b/cipher.h
+index 133d2e7..3cd2da5 100644
+--- a/cipher.h
++++ b/cipher.h
+@@ -72,8 +72,11 @@ struct CipherContext {
+ 	const Cipher *cipher;
  };
  
 +void ssh_aes_ctr_thread_destroy(EVP_CIPHER_CTX *ctx); // defined in cipher-ctr-mt.c
 +void ssh_aes_ctr_thread_reconstruction(EVP_CIPHER_CTX *ctx);
 +
  u_int	 cipher_mask_ssh1(int);
- Cipher	*cipher_by_name(const char *);
- Cipher	*cipher_by_number(int);
-@@ -86,6 +89,8 @@ u_int	 cipher_keylen(const Cipher *);
+-const Cipher	*cipher_by_name(const char *);
++Cipher	*cipher_by_name(const char *);
+ const Cipher	*cipher_by_number(int);
+ int	 cipher_number(const char *);
+ char	*cipher_name(int);
+@@ -93,6 +96,8 @@ u_int	 cipher_seclen(const Cipher *);
  u_int	 cipher_authlen(const Cipher *);
  u_int	 cipher_ivlen(const Cipher *);
  u_int	 cipher_is_cbc(const Cipher *);
@@ -888,10 +1082,11 @@ diff -rNuwpB canonical/cipher.h kitchen/cipher.h
  
  u_int	 cipher_get_number(const Cipher *);
  void	 cipher_get_keyiv(CipherContext *, u_char *, u_int);
-diff -rNuwpB canonical/clientloop.c kitchen/clientloop.c
---- canonical/clientloop.c	2013-01-08 23:55:51.000000000 -0500
-+++ kitchen/clientloop.c	2013-08-14 14:51:14.104512252 -0400
-@@ -1884,9 +1884,15 @@ client_request_x11(const char *request_t
+diff --git a/clientloop.c b/clientloop.c
+index 59ad3a2..e144fb6 100644
+--- a/clientloop.c
++++ b/clientloop.c
+@@ -1891,9 +1891,15 @@ client_request_x11(const char *request_type, int rchan)
  	sock = x11_connect_display();
  	if (sock < 0)
  		return NULL;
@@ -907,34 +1102,34 @@ diff -rNuwpB canonical/clientloop.c kitchen/clientloop.c
  	c->force_drain = 1;
  	return c;
  }
-@@ -1906,9 +1912,15 @@ client_request_agent(const char *request
+@@ -1913,9 +1919,15 @@ client_request_agent(const char *request_type, int rchan)
  	sock = ssh_get_authentication_socket();
  	if (sock < 0)
  		return NULL;
 +	if (options.hpn_disabled)
- 	c = channel_new("authentication agent connection",
- 	    SSH_CHANNEL_OPEN, sock, sock, -1,
--	    CHAN_X11_WINDOW_DEFAULT, CHAN_TCP_PACKET_DEFAULT, 0,
++	c = channel_new("authentication agent connection",
++	    SSH_CHANNEL_OPEN, sock, sock, -1,
 +		    CHAN_X11_WINDOW_DEFAULT, CHAN_TCP_WINDOW_DEFAULT, 0,
 +		    "authentication agent connection", 1);
 +	else
-+	c = channel_new("authentication agent connection",
-+	    SSH_CHANNEL_OPEN, sock, sock, -1,
+ 	c = channel_new("authentication agent connection",
+ 	    SSH_CHANNEL_OPEN, sock, sock, -1,
+-	    CHAN_X11_WINDOW_DEFAULT, CHAN_TCP_PACKET_DEFAULT, 0,
 +	    options.hpn_buffer_size, options.hpn_buffer_size, 0,
  	    "authentication agent connection", 1);
  	c->force_drain = 1;
  	return c;
-@@ -1936,10 +1948,18 @@ client_request_tun_fwd(int tun_mode, int
+@@ -1943,10 +1955,18 @@ client_request_tun_fwd(int tun_mode, int local_tun, int remote_tun)
  		return -1;
  	}
  
 +	if(options.hpn_disabled)
-+	c = channel_new("tun", SSH_CHANNEL_OPENING, fd, fd, -1,
+ 	c = channel_new("tun", SSH_CHANNEL_OPENING, fd, fd, -1,
+-	    CHAN_TCP_WINDOW_DEFAULT, CHAN_TCP_PACKET_DEFAULT, 0, "tun", 1);
 +				CHAN_TCP_WINDOW_DEFAULT, CHAN_TCP_PACKET_DEFAULT,
 +				0, "tun", 1);
 +	else
- 	c = channel_new("tun", SSH_CHANNEL_OPENING, fd, fd, -1,
--	    CHAN_TCP_WINDOW_DEFAULT, CHAN_TCP_PACKET_DEFAULT, 0, "tun", 1);
++	c = channel_new("tun", SSH_CHANNEL_OPENING, fd, fd, -1,
 +				options.hpn_buffer_size, CHAN_TCP_PACKET_DEFAULT,
 +				0, "tun", 1);
  	c->datagram = 1;
@@ -944,12 +1139,13 @@ diff -rNuwpB canonical/clientloop.c kitchen/clientloop.c
  #if defined(SSH_TUN_FILTER)
  	if (options.tun_open == SSH_TUNMODE_POINTOPOINT)
  		channel_register_filter(c->self, sys_tun_infilter,
-diff -rNuwpB canonical/compat.c kitchen/compat.c
---- canonical/compat.c	2012-09-06 07:21:56.000000000 -0400
-+++ kitchen/compat.c	2013-08-14 14:51:14.105512566 -0400
-@@ -173,6 +173,15 @@ compat_datafellows(const char *version)
+diff --git a/compat.c b/compat.c
+index 9d9fabe..235fc59 100644
+--- a/compat.c
++++ b/compat.c
+@@ -172,6 +172,15 @@ compat_datafellows(const char *version)
+ 		if (match_pattern_list(version, check[i].pat,
  		    strlen(check[i].pat), 0) == 1) {
- 			debug("match: %s pat %s", version, check[i].pat);
  			datafellows = check[i].bugs;
 +			/* Check to see if the remote side is OpenSSH and not HPN */
 +			if(strstr(version,"OpenSSH") != NULL)
@@ -960,12 +1156,13 @@ diff -rNuwpB canonical/compat.c kitchen/compat.c
 +					debug("Remote is NON-HPN aware");
 +				}
 +			}
+ 			debug("match: %s pat %s compat 0x%08x",
+ 			    version, check[i].pat, datafellows);
  			return;
- 		}
- 	}
-diff -rNuwpB canonical/compat.h kitchen/compat.h
---- canonical/compat.h	2011-10-02 03:59:03.000000000 -0400
-+++ kitchen/compat.h	2013-08-14 14:51:14.106512389 -0400
+diff --git a/compat.h b/compat.h
+index b174fa1..9937347 100644
+--- a/compat.h
++++ b/compat.h
 @@ -59,6 +59,7 @@
  #define SSH_BUG_RFWD_ADDR	0x02000000
  #define SSH_NEW_OPENSSH		0x04000000
@@ -974,151 +1171,19 @@ diff -rNuwpB canonical/compat.h kitchen/compat.h
  
  void     enable_compat13(void);
  void     enable_compat20(void);
-diff -rNuwpB canonical/HPN-README kitchen/HPN-README
---- canonical/HPN-README	1969-12-31 19:00:00.000000000 -0500
-+++ kitchen/HPN-README	2013-08-14 14:51:14.107513878 -0400
-@@ -0,0 +1,129 @@
-+Notes:
-+
-+MULTI-THREADED CIPHER:
-+The AES cipher in CTR mode has been multithreaded (MTR-AES-CTR). This will allow ssh installations
-+on hosts with multiple cores to use more than one processing core during encryption. 
-+Tests have show significant throughput performance increases when using MTR-AES-CTR up 
-+to and including a full gigabit per second on quad core systems. It should be possible to 
-+achieve full line rate on dual core systems but OS and data management overhead makes this
-+more difficult to achieve. The cipher stream from MTR-AES-CTR is entirely compatible with single 
-+thread AES-CTR (ST-AES-CTR) implementations and should be 100% backward compatible. Optimal 
-+performance requires the MTR-AES-CTR mode be enabled on both ends of the connection. 
-+The MTR-AES-CTR replaces ST-AES-CTR and is used in exactly the same way with the same
-+nomenclature. 
-+Use examples: 	ssh -caes128-ctr you@host.com
-+		scp -oCipher=aes256-ctr file you@host.com:~/file
-+
-+NONE CIPHER:
-+To use the NONE option you must have the NoneEnabled switch set on the server and
-+you *must* have *both* NoneEnabled and NoneSwitch set to yes on the client. The NONE
-+feature works with ALL ssh subsystems (as far as we can tell) *AS LONG AS* a tty is not 
-+spawned. If a user uses the -T switch to prevent a tty being created the NONE cipher will
-+be disabled. 
-+
-+The performance increase will only be as good as the network and TCP stack tuning
-+on the reciever side of the connection allows. As a rule of thumb a user will need 
-+at least 10Mb/s connection with a 100ms RTT to see a doubling of performance. The
-+HPN-SSH home page describes this in greater detail. 
-+
-+http://www.psc.edu/networking/projects/hpn-ssh
-+
-+BUFFER SIZES:
-+
-+If HPN is disabled the receive buffer size will be set to the 
-+OpenSSH default of 64K.
-+
-+If an HPN system connects to a nonHPN system the receive buffer will
-+be set to the HPNBufferSize value. The default is 2MB but user adjustable.
-+
-+If an HPN to HPN connection is established a number of different things might
-+happen based on the user options and conditions. 
-+
-+Conditions: HPNBufferSize NOT Set, TCPRcvBufPoll enabled, TCPRcvBuf NOT Set 
-+HPN Buffer Size = up to 64MB 
-+This is the default state. The HPN buffer size will grow to a maximum of 64MB 
-+as the TCP receive buffer grows. The maximum HPN Buffer size of 64MB is 
-+geared towards 10GigE transcontinental connections. 
-+
-+Conditions: HPNBufferSize NOT Set, TCPRcvBufPoll disabled, TCPRcvBuf NOT Set
-+HPN Buffer Size = TCP receive buffer value. 
-+Users on non-autotuning systesm should disable TCPRcvBufPoll in the 
-+ssh_cofig and sshd_config
-+
-+Conditions: HPNBufferSize SET, TCPRcvBufPoll disabled, TCPRcvBuf NOT Set
-+HPN Buffer Size = minmum of TCP receive buffer and HPNBufferSize. 
-+This would be the system defined TCP receive buffer (RWIN).
-+
-+Conditions: HPNBufferSize SET, TCPRcvBufPoll disabled, TCPRcvBuf SET
-+HPN Buffer Size = minmum of TCPRcvBuf and HPNBufferSize. 
-+Generally there is no need to set both.
-+
-+Conditions: HPNBufferSize SET, TCPRcvBufPoll enabled, TCPRcvBuf NOT Set
-+HPN Buffer Size = grows to HPNBufferSize
-+The buffer will grow up to the maximum size specified here. 
-+
-+Conditions: HPNBufferSize SET, TCPRcvBufPoll enabled, TCPRcvBuf SET
-+HPN Buffer Size = minmum of TCPRcvBuf and HPNBufferSize. 
-+Generally there is no need to set both of these, especially on autotuning 
-+systems. However, if the users wishes to override the autotuning this would be 
-+one way to do it.
-+
-+Conditions: HPNBufferSize NOT Set, TCPRcvBufPoll enabled, TCPRcvBuf SET
-+HPN Buffer Size = TCPRcvBuf. 
-+This will override autotuning and set the TCP recieve buffer to the user defined 
-+value.
-+
-+
-+HPN Specific Configuration options
-+
-+TcpRcvBuf=[int]KB client
-+      set the TCP socket receive buffer to n Kilobytes. It can be set up to the 
-+maximum socket size allowed by the system. This is useful in situations where 
-+the tcp receive window is set low but the maximum buffer size is set 
-+higher (as is typical). This works on a per TCP connection basis. You can also 
-+use this to artifically limit the transfer rate of the connection. In these 
-+cases the throughput will be no more than n/RTT. The minimum buffer size is 1KB. 
-+Default is the current system wide tcp receive buffer size.
-+
-+TcpRcvBufPoll=[yes/no] client/server
-+      enable of disable the polling of the tcp receive buffer through the life 
-+of the connection. You would want to make sure that this option is enabled 
-+for systems making use of autotuning kernels (linux 2.4.24+, 2.6, MS Vista) 
-+default is yes.
-+
-+NoneEnabled=[yes/no] client/server
-+      enable or disable the use of the None cipher. Care must always be used 
-+when enabling this as it will allow users to send data in the clear. However, 
-+it is important to note that authentication information remains encrypted 
-+even if this option is enabled. Set to no by default.
-+
-+NoneSwitch=[yes/no] client
-+     Switch the encryption cipher being used to the None cipher after
-+authentication takes place. NoneEnabled must be enabled on both the client
-+and server side of the connection. When the connection switches to the NONE
-+cipher a warning is sent to STDERR. The connection attempt will fail with an
-+error if a client requests a NoneSwitch from the server that does not explicitly
-+have NoneEnabled set to yes. Note: The NONE cipher cannot be used in
-+interactive (shell) sessions and it will fail silently. Set to no by default.
-+
-+HPNDisabled=[yes/no] client/server
-+     In some situations, such as transfers on a local area network, the impact 
-+of the HPN code produces a net decrease in performance. In these cases it is 
-+helpful to disable the HPN functionality. By default HPNDisabled is set to no. 
-+
-+HPNBufferSize=[int]KB client/server
-+     This is the default buffer size the HPN functionality uses when interacting
-+with nonHPN SSH installations. Conceptually this is similar to the TcpRcvBuf
-+option as applied to the internal SSH flow control. This value can range from 
-+1KB to 64MB (1-65536). Use of oversized or undersized buffers can cause performance
-+problems depending on the length of the network path. The default size of this buffer
-+is 2MB.
-+
-+
-+Credits: This patch was conceived, designed, and led by Chris Rapier (rapier@psc.edu)
-+         The majority of the actual coding for versions up to HPN12v1 was performed
-+         by Michael Stevens (mstevens@andrew.cmu.edu). The MT-AES-CTR cipher was 
-+	 implemented by Ben Bennet (ben@psc.edu) and improved by Mike Tasota 
-+	 (tasota@gmail.com) an NSF REU grant recipient for 2013. 
-+	 This work was financed, in part, by Cisco System, Inc., the National 
-+         Library of Medicine, and the National Science Foundation. 
-diff -rNuwpB canonical/kex.c kitchen/kex.c
---- canonical/kex.c	2013-01-09 00:12:19.000000000 -0500
-+++ kitchen/kex.c	2013-08-14 15:01:09.878263441 -0400
+diff --git a/kex.c b/kex.c
+index 74e2b86..16bd693 100644
+--- a/kex.c
++++ b/kex.c
 @@ -49,6 +49,7 @@
  #include "dispatch.h"
  #include "monitor.h"
  #include "roaming.h"
 +#include "canohost.h"
+ #include "digest.h"
  
  #if OPENSSL_VERSION_NUMBER >= 0x00907000L
- # if defined(HAVE_EVP_SHA256)
-@@ -91,7 +92,7 @@ kex_names_valid(const char *names)
+@@ -146,7 +147,7 @@ kex_names_valid(const char *names)
  }
  
  /* put algorithm proposal into buffer */
@@ -1127,9 +1192,9 @@ diff -rNuwpB canonical/kex.c kitchen/kex.c
  kex_prop2buf(Buffer *b, char *proposal[PROPOSAL_MAX])
  {
  	u_int i;
-@@ -418,6 +419,11 @@ kex_choose_conf(Kex *kex)
+@@ -460,6 +461,11 @@ kex_choose_conf(Kex *kex)
  	int nenc, nmac, ncomp;
- 	u_int mode, ctos, need, authlen;
+ 	u_int mode, ctos, need, dh_need, authlen;
  	int first_kex_follows, type;
 +	int log_flag = 0;
 +	int auth_flag;
@@ -1139,7 +1204,7 @@ diff -rNuwpB canonical/kex.c kitchen/kex.c
  
  	my   = kex_buf2prop(&kex->my, NULL);
  	peer = kex_buf2prop(&kex->peer, &first_kex_follows);
-@@ -455,11 +461,34 @@ kex_choose_conf(Kex *kex)
+@@ -497,11 +503,34 @@ kex_choose_conf(Kex *kex)
  		if (authlen == 0)
  			choose_mac(&newkeys->mac, cprop[nmac], sprop[nmac]);
  		choose_comp(&newkeys->comp, cprop[ncomp], sprop[ncomp]);
@@ -1174,42 +1239,23 @@ diff -rNuwpB canonical/kex.c kitchen/kex.c
  	}
  	choose_kex(kex, cprop[PROPOSAL_KEX_ALGS], sprop[PROPOSAL_KEX_ALGS]);
  	choose_hostkeyalg(kex, cprop[PROPOSAL_SERVER_HOST_KEY_ALGS],
-diff -rNuwpB canonical/kex.h kitchen/kex.h
---- canonical/kex.h	2013-01-09 00:12:19.000000000 -0500
-+++ kitchen/kex.h	2013-08-14 14:51:18.678167843 -0400
-@@ -141,6 +141,7 @@ struct Kex {
+diff --git a/kex.h b/kex.h
+index c85680e..91a524a 100644
+--- a/kex.h
++++ b/kex.h
+@@ -146,6 +146,7 @@ struct Kex {
  };
  
  int	 kex_names_valid(const char *);
 +void	 kex_prop2buf(Buffer *, char *proposal[PROPOSAL_MAX]);
+ char	*kex_alg_list(char);
  
  Kex	*kex_setup(char *[PROPOSAL_MAX]);
- void	 kex_finish(Kex *);
-diff -rNuwpB canonical/Makefile.in kitchen/Makefile.in
---- canonical/Makefile.in	2013-03-07 10:37:13.000000000 -0500
-+++ kitchen/Makefile.in	2013-08-14 15:01:19.867299340 -0400
-@@ -43,7 +43,7 @@ CC=@CC@
- LD=@LD@
- CFLAGS=@CFLAGS@
- CPPFLAGS=-I. -I$(srcdir) @CPPFLAGS@ $(PATHS) @DEFS@
--LIBS=@LIBS@
-+LIBS=@LIBS@ -lpthread
- K5LIBS=@K5LIBS@
- GSSLIBS=@GSSLIBS@
- SSHLIBS=@SSHLIBS@
-@@ -65,7 +65,7 @@ TARGETS=ssh$(EXEEXT) sshd$(EXEEXT) ssh-a
- 
- LIBSSH_OBJS=authfd.o authfile.o bufaux.o bufbn.o buffer.o \
- 	canohost.o channels.o cipher.o cipher-aes.o \
--	cipher-bf1.o cipher-ctr.o cipher-3des1.o cleanup.o \
-+	cipher-bf1.o cipher-ctr.o cipher-ctr-mt.o cipher-3des1.o cleanup.o \
- 	compat.o compress.o crc32.o deattack.o fatal.o hostfile.o \
- 	log.o match.o md-sha256.o moduli.o nchan.o packet.o \
- 	readpass.o rsa.o ttymodes.o xmalloc.o addrmatch.o \
-diff -rNuwpB canonical/myproposal.h kitchen/myproposal.h
---- canonical/myproposal.h	2013-01-09 00:12:19.000000000 -0500
-+++ kitchen/myproposal.h	2013-08-14 14:51:18.678167843 -0400
-@@ -106,6 +106,8 @@
+diff --git a/myproposal.h b/myproposal.h
+index 3a0f5ae..9e24f24 100644
+--- a/myproposal.h
++++ b/myproposal.h
+@@ -133,6 +133,8 @@
  #define	KEX_DEFAULT_COMP	"none,zlib@openssh.com,zlib"
  #define	KEX_DEFAULT_LANG	""
  
@@ -1218,10 +1264,11 @@ diff -rNuwpB canonical/myproposal.h kitchen/myproposal.h
  
  static char *myproposal[PROPOSAL_MAX] = {
  	KEX_DEFAULT_KEX,
-diff -rNuwpB canonical/packet.c kitchen/packet.c
---- canonical/packet.c	2013-05-09 23:41:34.000000000 -0400
-+++ kitchen/packet.c	2013-08-14 15:01:19.869512374 -0400
-@@ -841,7 +841,7 @@ packet_enable_delayed_compress(void)
+diff --git a/packet.c b/packet.c
+index 54c0558..0bcac42 100644
+--- a/packet.c
++++ b/packet.c
+@@ -848,7 +848,7 @@ packet_enable_delayed_compress(void)
  /*
   * Finalize packet in SSH2 format (compress, mac, encrypt, enqueue)
   */
@@ -1230,7 +1277,7 @@ diff -rNuwpB canonical/packet.c kitchen/packet.c
  packet_send2_wrapped(void)
  {
  	u_char type, *cp, *macbuf = NULL;
-@@ -972,11 +972,14 @@ packet_send2_wrapped(void)
+@@ -980,11 +980,14 @@ packet_send2_wrapped(void)
  		set_newkeys(MODE_OUT);
  	else if (type == SSH2_MSG_USERAUTH_SUCCESS && active_state->server_side)
  		packet_enable_delayed_compress();
@@ -1246,7 +1293,7 @@ diff -rNuwpB canonical/packet.c kitchen/packet.c
  	struct packet *p;
  	u_char type, *cp;
  
-@@ -996,7 +999,7 @@ packet_send2(void)
+@@ -1004,7 +1007,7 @@ packet_send2(void)
  			    sizeof(Buffer));
  			buffer_init(&active_state->outgoing_packet);
  			TAILQ_INSERT_TAIL(&active_state->outgoing, p, next);
@@ -1255,7 +1302,7 @@ diff -rNuwpB canonical/packet.c kitchen/packet.c
  		}
  	}
  
-@@ -1004,7 +1007,7 @@ packet_send2(void)
+@@ -1012,7 +1015,7 @@ packet_send2(void)
  	if (type == SSH2_MSG_KEXINIT)
  		active_state->rekeying = 1;
  
@@ -1264,10 +1311,10 @@ diff -rNuwpB canonical/packet.c kitchen/packet.c
  
  	/* after a NEWKEYS message we can send the complete queue */
  	if (type == SSH2_MSG_NEWKEYS) {
-@@ -1017,19 +1020,22 @@ packet_send2(void)
+@@ -1026,19 +1029,22 @@ packet_send2(void)
  			    sizeof(Buffer));
  			TAILQ_REMOVE(&active_state->outgoing, p, next);
- 			xfree(p);
+ 			free(p);
 -			packet_send2_wrapped();
 +			packet_length += packet_send2_wrapped();
  		}
@@ -1290,7 +1337,7 @@ diff -rNuwpB canonical/packet.c kitchen/packet.c
  }
  
  /*
-@@ -1701,12 +1707,15 @@ packet_disconnect(const char *fmt,...)
+@@ -1718,12 +1724,15 @@ packet_disconnect(const char *fmt,...)
  
  /* Checks if there is any buffered output, and tries to write some of the output. */
  
@@ -1308,7 +1355,7 @@ diff -rNuwpB canonical/packet.c kitchen/packet.c
  	if (len > 0) {
  		cont = 0;
  		len = roaming_write(active_state->connection_out,
-@@ -1714,13 +1723,14 @@ packet_write_poll(void)
+@@ -1731,13 +1740,14 @@ packet_write_poll(void)
  		if (len == -1) {
  			if (errno == EINTR || errno == EAGAIN ||
  			    errno == EWOULDBLOCK)
@@ -1324,7 +1371,7 @@ diff -rNuwpB canonical/packet.c kitchen/packet.c
  }
  
  /*
-@@ -1921,12 +1931,25 @@ packet_send_ignore(int nbytes)
+@@ -1938,12 +1948,25 @@ packet_send_ignore(int nbytes)
  	}
  }
  
@@ -1350,8 +1397,8 @@ diff -rNuwpB canonical/packet.c kitchen/packet.c
  	return
  	    (active_state->p_send.packets > MAX_PACKETS) ||
  	    (active_state->p_read.packets > MAX_PACKETS) ||
-@@ -1936,6 +1959,12 @@ packet_need_rekeying(void)
- 	        (active_state->p_read.blocks > active_state->max_blocks_in));
+@@ -1955,6 +1978,12 @@ packet_need_rekeying(void)
+ 		 active_state->rekey_interval <= monotime());
  }
  
 +int
@@ -1361,9 +1408,9 @@ diff -rNuwpB canonical/packet.c kitchen/packet.c
 +}
 +
  void
- packet_set_rekey_limit(u_int32_t bytes)
+ packet_set_rekey_limits(u_int32_t bytes, time_t seconds)
  {
-@@ -1972,6 +2001,18 @@ packet_get_newkeys(int mode)
+@@ -2009,6 +2038,18 @@ packet_get_newkeys(int mode)
  	return (void *)active_state->newkeys[mode];
  }
  
@@ -1382,9 +1429,10 @@ diff -rNuwpB canonical/packet.c kitchen/packet.c
  /*
   * Save the state for the real connection, and use a separate state when
   * resuming a suspended connection.
-diff -rNuwpB canonical/packet.h kitchen/packet.h
---- canonical/packet.h	2012-02-10 16:19:21.000000000 -0500
-+++ kitchen/packet.h	2013-08-14 15:01:19.870513492 -0400
+diff --git a/packet.h b/packet.h
+index f8edf85..8a781d5 100644
+--- a/packet.h
++++ b/packet.h
 @@ -23,6 +23,7 @@
  #include <openssl/ec.h>
  #endif
@@ -1393,7 +1441,7 @@ diff -rNuwpB canonical/packet.h kitchen/packet.h
  void     packet_set_connection(int, int);
  void     packet_set_timeout(int, int);
  void     packet_set_nonblocking(void);
-@@ -38,6 +39,8 @@ void     packet_set_interactive(int, int
+@@ -38,6 +39,8 @@ void     packet_set_interactive(int, int, int);
  int      packet_is_interactive(void);
  void     packet_set_server(void);
  void     packet_set_authenticated(void);
@@ -1402,7 +1450,7 @@ diff -rNuwpB canonical/packet.h kitchen/packet.h
  
  void     packet_start(u_char);
  void     packet_put_char(int ch);
-@@ -51,7 +54,7 @@ void     packet_put_ecpoint(const EC_GRO
+@@ -51,7 +54,7 @@ void     packet_put_ecpoint(const EC_GROUP *, const EC_POINT *);
  void     packet_put_string(const void *buf, u_int len);
  void     packet_put_cstring(const char *str);
  void     packet_put_raw(const void *buf, u_int len);
@@ -1431,11 +1479,12 @@ diff -rNuwpB canonical/packet.h kitchen/packet.h
  /* don't allow remaining bytes after the end of the message */
  #define packet_check_eom() \
  do { \
-diff -rNuwpB canonical/progressmeter.c kitchen/progressmeter.c
---- canonical/progressmeter.c	2006-08-04 22:39:40.000000000 -0400
-+++ kitchen/progressmeter.c	2013-08-14 14:59:45.662420176 -0400
-@@ -68,6 +68,8 @@ static time_t last_update;	/* last progr
- static char *file;		/* name of the file being transferred */
+diff --git a/progressmeter.c b/progressmeter.c
+index bbbc706..02e5d6d 100644
+--- a/progressmeter.c
++++ b/progressmeter.c
+@@ -69,6 +69,8 @@ static char *file;		/* name of the file being transferred */
+ static off_t start_pos;		/* initial position of transfer */
  static off_t end_pos;		/* ending position of transfer */
  static off_t cur_pos;		/* transfer position as of last refresh */
 +static off_t last_pos;
@@ -1443,15 +1492,15 @@ diff -rNuwpB canonical/progressmeter.c kitchen/progressmeter.c
  static volatile off_t *counter;	/* progress counter */
  static long stalled;		/* how long we have been stalled */
  static int bytes_per_second;	/* current speed in bytes per second */
-@@ -128,12 +130,17 @@ refresh_progress_meter(void)
+@@ -129,12 +131,17 @@ refresh_progress_meter(void)
  	int hours, minutes, seconds;
  	int i, len;
  	int file_len;
 +	off_t delta_pos;
  
- 	transferred = *counter - cur_pos;
+ 	transferred = *counter - (cur_pos ? cur_pos : start_pos);
  	cur_pos = *counter;
- 	now = time(NULL);
+ 	now = monotime();
  	bytes_left = end_pos - cur_pos;
  
 +	delta_pos = cur_pos - last_pos;
@@ -1461,7 +1510,7 @@ diff -rNuwpB canonical/progressmeter.c kitchen/progressmeter.c
  	if (bytes_left > 0)
  		elapsed = now - last_update;
  	else {
-@@ -158,7 +165,7 @@ refresh_progress_meter(void)
+@@ -159,7 +166,7 @@ refresh_progress_meter(void)
  
  	/* filename */
  	buf[0] = '\0';
@@ -1470,7 +1519,7 @@ diff -rNuwpB canonical/progressmeter.c kitchen/progressmeter.c
  	if (file_len > 0) {
  		len = snprintf(buf, file_len + 1, "\r%s", file);
  		if (len < 0)
-@@ -188,6 +195,15 @@ refresh_progress_meter(void)
+@@ -189,6 +196,15 @@ refresh_progress_meter(void)
  	    (off_t)bytes_per_second);
  	strlcat(buf, "/s ", win_size);
  
@@ -1486,7 +1535,7 @@ diff -rNuwpB canonical/progressmeter.c kitchen/progressmeter.c
  	/* ETA */
  	if (!transferred)
  		stalled += elapsed;
-@@ -224,6 +240,7 @@ refresh_progress_meter(void)
+@@ -225,6 +241,7 @@ refresh_progress_meter(void)
  
  	atomicio(vwrite, STDOUT_FILENO, buf, win_size - 1);
  	last_update = now;
@@ -1494,33 +1543,33 @@ diff -rNuwpB canonical/progressmeter.c kitchen/progressmeter.c
  }
  
  /*ARGSUSED*/
-diff -rNuwpB canonical/readconf.c kitchen/readconf.c
---- canonical/readconf.c	2013-04-04 20:18:58.000000000 -0400
-+++ kitchen/readconf.c	2013-08-14 15:09:22.258242996 -0400
-@@ -135,6 +135,8 @@ typedef enum {
+diff --git a/readconf.c b/readconf.c
+index dc884c9..955bdcb 100644
+--- a/readconf.c
++++ b/readconf.c
+@@ -145,6 +145,8 @@ typedef enum {
+ 	oSendEnv, oControlPath, oControlMaster, oControlPersist,
+ 	oHashKnownHosts,
  	oTunnel, oTunnelDevice, oLocalCommand, oPermitLocalCommand,
- 	oVisualHostKey, oUseRoaming, oZeroKnowledgePasswordAuthentication,
- 	oKexAlgorithms, oIPQoS, oRequestTTY,
 +	oTcpRcvBufPoll, oTcpRcvBuf, oHPNDisabled, oHPNBufferSize,
 +	oNoneEnabled, oNoneSwitch,
- 	oDeprecated, oUnsupported
- } OpCodes;
- 
-@@ -246,6 +248,13 @@ static struct {
+ 	oVisualHostKey, oUseRoaming,
+ 	oKexAlgorithms, oIPQoS, oRequestTTY, oIgnoreUnknown, oProxyUseFdpass,
+ 	oCanonicalDomains, oCanonicalizeHostname, oCanonicalizeMaxDots,
+@@ -255,6 +257,12 @@ static struct {
  	{ "kexalgorithms", oKexAlgorithms },
  	{ "ipqos", oIPQoS },
  	{ "requesttty", oRequestTTY },
 +	{ "noneenabled", oNoneEnabled },
 +        { "noneswitch", oNoneSwitch },
-+
 +	{ "tcprcvbufpoll", oTcpRcvBufPoll },
 +	{ "tcprcvbuf", oTcpRcvBuf },
 +	{ "hpndisabled", oHPNDisabled },
 +	{ "hpnbuffersize", oHPNBufferSize },
- 
- 	{ NULL, oBadOption }
- };
-@@ -515,6 +524,36 @@ parse_flag:
+ 	{ "proxyusefdpass", oProxyUseFdpass },
+ 	{ "canonicaldomains", oCanonicalDomains },
+ 	{ "canonicalizefallbacklocal", oCanonicalizeFallbackLocal },
+@@ -853,6 +861,36 @@ parse_time:
  		intptr = &options->check_host_ip;
  		goto parse_flag;
  
@@ -1556,8 +1605,8 @@ diff -rNuwpB canonical/readconf.c kitchen/readconf.c
 +
  	case oVerifyHostKeyDNS:
  		intptr = &options->verify_host_key_dns;
- 		goto parse_yesnoask;
-@@ -698,6 +737,10 @@ parse_int:
+ 		multistate_ptr = multistate_yesnoask;
+@@ -1015,6 +1053,10 @@ parse_int:
  		intptr = &options->connection_attempts;
  		goto parse_int;
  
@@ -1568,21 +1617,20 @@ diff -rNuwpB canonical/readconf.c kitchen/readconf.c
  	case oCipher:
  		intptr = &options->cipher;
  		arg = strdelim(&s);
-@@ -1222,6 +1265,13 @@ initialize_options(Options * options)
+@@ -1561,6 +1603,12 @@ initialize_options(Options * options)
  	options->ip_qos_interactive = -1;
  	options->ip_qos_bulk = -1;
  	options->request_tty = -1;
-+
 +	options->none_switch = -1;
 +	options->none_enabled = -1;
 +	options->hpn_disabled = -1;
 +	options->hpn_buffer_size = -1;
 +	options->tcp_rcv_buf_poll = -1;
 +	options->tcp_rcv_buf = -1;
- }
- 
- /*
-@@ -1345,6 +1395,32 @@ fill_default_options(Options * options)
+ 	options->proxy_use_fdpass = -1;
+ 	options->ignored_unknown = NULL;
+ 	options->num_canonical_domains = 0;
+@@ -1707,6 +1755,32 @@ fill_default_options(Options * options)
  		options->server_alive_interval = 0;
  	if (options->server_alive_count_max == -1)
  		options->server_alive_count_max = 3;
@@ -1615,10 +1663,11 @@ diff -rNuwpB canonical/readconf.c kitchen/readconf.c
  	if (options->control_master == -1)
  		options->control_master = 0;
  	if (options->control_persist == -1) {
-diff -rNuwpB canonical/readconf.h kitchen/readconf.h
---- canonical/readconf.h	2013-04-04 20:18:58.000000000 -0400
-+++ kitchen/readconf.h	2013-08-14 15:06:30.521238892 -0400
-@@ -61,6 +61,10 @@ typedef struct {
+diff --git a/readconf.h b/readconf.h
+index 75e3f8f..7cd016f 100644
+--- a/readconf.h
++++ b/readconf.h
+@@ -66,6 +66,10 @@ typedef struct {
  	int     compression_level;	/* Compression level 1 (fast) to 9
  					 * (best). */
  	int     tcp_keep_alive;	/* Set SO_KEEPALIVE. */
@@ -1629,19 +1678,22 @@ diff -rNuwpB canonical/readconf.h kitchen/readconf.h
  	int	ip_qos_interactive;	/* IP ToS/DSCP/class for interactive */
  	int	ip_qos_bulk;		/* IP ToS/DSCP/class for bulk traffic */
  	LogLevel log_level;	/* Level for logging. */
-@@ -110,6 +114,8 @@ typedef struct {
+@@ -115,7 +119,10 @@ typedef struct {
  
  	int	enable_ssh_keysign;
  	int64_t rekey_limit;
 +	int     none_switch;    /* Use none cipher */
 +       	int     none_enabled;   /* Allow none to be used */
+ 	int	rekey_interval;
++
  	int	no_host_authentication_for_localhost;
  	int	identities_only;
  	int	server_alive_interval;
-diff -rNuwpB canonical/scp.c kitchen/scp.c
---- canonical/scp.c	2013-03-19 21:55:15.000000000 -0400
-+++ kitchen/scp.c	2013-08-14 14:51:14.110513234 -0400
-@@ -731,7 +731,7 @@ source(int argc, char **argv)
+diff --git a/scp.c b/scp.c
+index 18d3b1d..2ab8f15 100644
+--- a/scp.c
++++ b/scp.c
+@@ -749,7 +749,7 @@ source(int argc, char **argv)
  	off_t i, statbytes;
  	size_t amt;
  	int fd = -1, haderr, indx;
@@ -1650,19 +1702,20 @@ diff -rNuwpB canonical/scp.c kitchen/scp.c
  	int len;
  
  	for (indx = 0; indx < argc; ++indx) {
-@@ -913,7 +913,7 @@ sink(int argc, char **argv)
- 	mode_t mode, omode, mask;
+@@ -914,7 +914,7 @@ sink(int argc, char **argv)
  	off_t size, statbytes;
+ 	unsigned long long ull;
  	int setimes, targisdir, wrerrno = 0;
 -	char ch, *cp, *np, *targ, *why, *vect[1], buf[2048];
 +	char ch, *cp, *np, *targ, *why, *vect[1], buf[16384];
  	struct timeval tv[2];
  
  #define	atime	tv[0]
-diff -rNuwpB canonical/servconf.c kitchen/servconf.c
---- canonical/servconf.c	2013-02-11 19:02:08.000000000 -0500
-+++ kitchen/servconf.c	2013-08-14 14:56:39.392512470 -0400
-@@ -143,6 +143,10 @@ initialize_server_options(ServerOptions 
+diff --git a/servconf.c b/servconf.c
+index 7ba65d5..d492a04 100644
+--- a/servconf.c
++++ b/servconf.c
+@@ -150,6 +150,10 @@ initialize_server_options(ServerOptions *options)
  	options->revoked_keys_file = NULL;
  	options->trusted_user_ca_keys = NULL;
  	options->authorized_principals_file = NULL;
@@ -1673,7 +1726,7 @@ diff -rNuwpB canonical/servconf.c kitchen/servconf.c
  	options->ip_qos_interactive = -1;
  	options->ip_qos_bulk = -1;
  	options->version_addendum = NULL;
-@@ -151,6 +155,11 @@ initialize_server_options(ServerOptions 
+@@ -158,6 +162,11 @@ initialize_server_options(ServerOptions *options)
  void
  fill_default_server_options(ServerOptions *options)
  {
@@ -1685,10 +1738,10 @@ diff -rNuwpB canonical/servconf.c kitchen/servconf.c
  	/* Portable-specific options */
  	if (options->use_pam == -1)
  		options->use_pam = 0;
-@@ -281,6 +290,45 @@ fill_default_server_options(ServerOption
+@@ -294,6 +303,44 @@ fill_default_server_options(ServerOptions *options)
+ 	}
+ 	if (options->permit_tun == -1)
  		options->permit_tun = SSH_TUNMODE_NO;
- 	if (options->zero_knowledge_password_authentication == -1)
- 		options->zero_knowledge_password_authentication = 0;
 +	if (options->none_enabled == -1) 
 +		options->none_enabled = 0;
 +	if (options->hpn_disabled == -1) 
@@ -1727,23 +1780,22 @@ diff -rNuwpB canonical/servconf.c kitchen/servconf.c
 +			options->hpn_buffer_size = CHAN_TCP_WINDOW_DEFAULT;
 +	}
 +
-+
  	if (options->ip_qos_interactive == -1)
  		options->ip_qos_interactive = IPTOS_LOWDELAY;
  	if (options->ip_qos_bulk == -1)
-@@ -332,9 +380,10 @@ typedef enum {
+@@ -345,9 +392,10 @@ typedef enum {
  	sUsePrivilegeSeparation, sAllowAgentForwarding,
- 	sZeroKnowledgePasswordAuthentication, sHostCertificate,
+ 	sHostCertificate,
  	sRevokedKeys, sTrustedUserCAKeys, sAuthorizedPrincipalsFile,
 +	sTcpRcvBufPoll, sHPNDisabled, sHPNBufferSize,
  	sKexAlgorithms, sIPQoS, sVersionAddendum,
  	sAuthorizedKeysCommand, sAuthorizedKeysCommandUser,
--	sAuthenticationMethods,
-+	sAuthenticationMethods, sNoneEnabled,
+-	sAuthenticationMethods, sHostKeyAgent,
++	sAuthenticationMethods, sNoneEnabled, sHostKeyAgent,
  	sDeprecated, sUnsupported
  } ServerOpCodes;
  
-@@ -457,6 +506,10 @@ static struct {
+@@ -468,6 +516,10 @@ static struct {
  	{ "revokedkeys", sRevokedKeys, SSHCFG_ALL },
  	{ "trustedusercakeys", sTrustedUserCAKeys, SSHCFG_ALL },
  	{ "authorizedprincipalsfile", sAuthorizedPrincipalsFile, SSHCFG_ALL },
@@ -1754,7 +1806,7 @@ diff -rNuwpB canonical/servconf.c kitchen/servconf.c
  	{ "kexalgorithms", sKexAlgorithms, SSHCFG_GLOBAL },
  	{ "ipqos", sIPQoS, SSHCFG_ALL },
  	{ "authorizedkeyscommand", sAuthorizedKeysCommand, SSHCFG_ALL },
-@@ -489,6 +542,7 @@ parse_token(const char *cp, const char *
+@@ -500,6 +552,7 @@ parse_token(const char *cp, const char *filename,
  
  	for (i = 0; keywords[i].name; i++)
  		if (strcasecmp(cp, keywords[i].name) == 0) {
@@ -1762,7 +1814,7 @@ diff -rNuwpB canonical/servconf.c kitchen/servconf.c
  			*flags = keywords[i].flags;
  			return keywords[i].opcode;
  		}
-@@ -1005,10 +1059,27 @@ process_server_config_line(ServerOptions
+@@ -1042,10 +1095,27 @@ process_server_config_line(ServerOptions *options, char *line,
  			*intptr = value;
  		break;
  
@@ -1790,9 +1842,10 @@ diff -rNuwpB canonical/servconf.c kitchen/servconf.c
  	case sRhostsRSAAuthentication:
  		intptr = &options->rhosts_rsa_authentication;
  		goto parse_flag;
-diff -rNuwpB canonical/servconf.h kitchen/servconf.h
---- canonical/servconf.h	2013-01-08 23:56:45.000000000 -0500
-+++ kitchen/servconf.h	2013-08-14 14:51:18.685511187 -0400
+diff --git a/servconf.h b/servconf.h
+index 752d1c5..2945153 100644
+--- a/servconf.h
++++ b/servconf.h
 @@ -164,6 +164,11 @@ typedef struct {
  	char   *adm_forced_command;
  
@@ -1805,10 +1858,11 @@ diff -rNuwpB canonical/servconf.h kitchen/servconf.h
  
  	int	permit_tun;
  
-diff -rNuwpB canonical/serverloop.c kitchen/serverloop.c
---- canonical/serverloop.c	2012-12-06 21:07:47.000000000 -0500
-+++ kitchen/serverloop.c	2013-08-14 14:59:53.383513523 -0400
-@@ -94,10 +94,10 @@ static int fdin;		/* Descriptor for stdi
+diff --git a/serverloop.c b/serverloop.c
+index 2f8e3a0..7d3bdb7 100644
+--- a/serverloop.c
++++ b/serverloop.c
+@@ -94,10 +94,10 @@ static int fdin;		/* Descriptor for stdin (for writing) */
  static int fdout;		/* Descriptor for stdout (for reading);
  				   May be same number as fdin. */
  static int fderr;		/* Descriptor for stderr.  May be -1. */
@@ -1823,7 +1877,7 @@ diff -rNuwpB canonical/serverloop.c kitchen/serverloop.c
  static int stdin_eof = 0;	/* EOF message received from client. */
  static int fdout_eof = 0;	/* EOF encountered reading from fdout. */
  static int fderr_eof = 0;	/* EOF encountered readung from fderr. */
-@@ -122,6 +122,20 @@ static volatile sig_atomic_t received_si
+@@ -122,6 +122,20 @@ static volatile sig_atomic_t received_sigterm = 0;
  static void server_init_dispatch(void);
  
  /*
@@ -1844,7 +1898,7 @@ diff -rNuwpB canonical/serverloop.c kitchen/serverloop.c
   * we write to this pipe if a SIGCHLD is caught in order to avoid
   * the race between select() and child_terminated
   */
-@@ -420,6 +434,7 @@ process_input(fd_set *readset)
+@@ -421,6 +435,7 @@ process_input(fd_set *readset)
  		} else {
  			/* Buffer any received data. */
  			packet_process_incoming(buf, len);
@@ -1852,7 +1906,7 @@ diff -rNuwpB canonical/serverloop.c kitchen/serverloop.c
  		}
  	}
  	if (compat20)
-@@ -442,6 +457,7 @@ process_input(fd_set *readset)
+@@ -443,6 +458,7 @@ process_input(fd_set *readset)
  		} else {
  			buffer_append(&stdout_buffer, buf, len);
  			fdout_bytes += len;
@@ -1860,7 +1914,7 @@ diff -rNuwpB canonical/serverloop.c kitchen/serverloop.c
  		}
  	}
  	/* Read and buffer any available stderr data from the program. */
-@@ -509,7 +525,7 @@ process_output(fd_set *writeset)
+@@ -510,7 +526,7 @@ process_output(fd_set *writeset)
  	}
  	/* Send any buffered packet data to the client. */
  	if (FD_ISSET(connection_out, writeset))
@@ -1869,18 +1923,21 @@ diff -rNuwpB canonical/serverloop.c kitchen/serverloop.c
  }
  
  /*
-@@ -826,8 +842,10 @@ server_loop2(Authctxt *authctxt)
+@@ -824,11 +840,13 @@ void
+ server_loop2(Authctxt *authctxt)
  {
  	fd_set *readset = NULL, *writeset = NULL;
- 	int rekeying = 0, max_fd, nalloc = 0;
 +	double start_time, total_time;
+ 	int rekeying = 0, max_fd;
+ 	u_int nalloc = 0;
+ 	u_int64_t rekey_timeout_ms = 0;
  
  	debug("Entering interactive session for SSH2.");
 +	start_time = get_current_time();
  
  	mysignal(SIGCHLD, sigchld_handler);
  	child_terminated = 0;
-@@ -889,6 +907,11 @@ server_loop2(Authctxt *authctxt)
+@@ -893,6 +911,11 @@ server_loop2(Authctxt *authctxt)
  
  	/* free remaining sessions, e.g. remove wtmp entries */
  	session_destroy_all(NULL);
@@ -1892,7 +1949,7 @@ diff -rNuwpB canonical/serverloop.c kitchen/serverloop.c
  }
  
  static void
-@@ -1011,8 +1034,12 @@ server_request_tun(void)
+@@ -1015,8 +1038,12 @@ server_request_tun(void)
  	sock = tun_open(tun, mode);
  	if (sock < 0)
  		goto done;
@@ -1905,7 +1962,7 @@ diff -rNuwpB canonical/serverloop.c kitchen/serverloop.c
  	c->datagram = 1;
  #if defined(SSH_TUN_FILTER)
  	if (mode == SSH_TUNMODE_POINTOPOINT)
-@@ -1048,6 +1075,8 @@ server_request_session(void)
+@@ -1052,6 +1079,8 @@ server_request_session(void)
  	c = channel_new("session", SSH_CHANNEL_LARVAL,
  	    -1, -1, -1, /*window size*/0, CHAN_SES_PACKET_DEFAULT,
  	    0, "server-session", 1);
@@ -1914,10 +1971,11 @@ diff -rNuwpB canonical/serverloop.c kitchen/serverloop.c
  	if (session_open(the_authctxt, c->self) != 1) {
  		debug("session open failed, free channel %d", c->self);
  		channel_free(c);
-diff -rNuwpB canonical/session.c kitchen/session.c
---- canonical/session.c	2013-03-14 20:22:37.000000000 -0400
-+++ kitchen/session.c	2013-08-14 14:51:14.114513296 -0400
-@@ -236,6 +236,7 @@ auth_input_request_forwarding(struct pas
+diff --git a/session.c b/session.c
+index 2bcf818..817afc9 100644
+--- a/session.c
++++ b/session.c
+@@ -237,6 +237,7 @@ auth_input_request_forwarding(struct passwd * pw)
  	}
  
  	/* Allocate a channel for the authentication agent socket. */
@@ -1925,7 +1983,7 @@ diff -rNuwpB canonical/session.c kitchen/session.c
  	nc = channel_new("auth socket",
  	    SSH_CHANNEL_AUTH_SOCKET, sock, sock, -1,
  	    CHAN_X11_WINDOW_DEFAULT, CHAN_X11_PACKET_DEFAULT,
-@@ -2286,10 +2287,16 @@ session_set_fds(Session *s, int fdin, in
+@@ -2331,10 +2332,16 @@ session_set_fds(Session *s, int fdin, int fdout, int fderr, int ignore_fderr,
  	 */
  	if (s->chanid == -1)
  		fatal("no channel for session %d", s->self);
@@ -1942,10 +2000,11 @@ diff -rNuwpB canonical/session.c kitchen/session.c
  }
  
  /*
-diff -rNuwpB canonical/sftp.1 kitchen/sftp.1
---- canonical/sftp.1	2011-09-22 07:34:15.000000000 -0400
-+++ kitchen/sftp.1	2013-08-14 14:51:14.115523559 -0400
-@@ -247,7 +247,8 @@ diagnostic messages from
+diff --git a/sftp.1 b/sftp.1
+index a700c2a..8e00b13 100644
+--- a/sftp.1
++++ b/sftp.1
+@@ -261,7 +261,8 @@ diagnostic messages from
  Specify how many requests may be outstanding at any one time.
  Increasing this may slightly improve file transfer speed
  but will increase memory usage.
@@ -1955,10 +2014,11 @@ diff -rNuwpB canonical/sftp.1 kitchen/sftp.1
  .It Fl r
  Recursively copy entire directories when uploading and downloading.
  Note that
-diff -rNuwpB canonical/sftp.c kitchen/sftp.c
---- canonical/sftp.c	2013-02-22 17:12:24.000000000 -0500
-+++ kitchen/sftp.c	2013-08-14 14:51:14.116513440 -0400
-@@ -65,7 +65,7 @@ typedef void EditLine;
+diff --git a/sftp.c b/sftp.c
+index ad1f8c8..1575d5e 100644
+--- a/sftp.c
++++ b/sftp.c
+@@ -68,7 +68,7 @@ typedef void EditLine;
  #include "sftp-client.h"
  
  #define DEFAULT_COPY_BUFLEN	32768	/* Size of buffer for up/download */
@@ -1967,10 +2027,11 @@ diff -rNuwpB canonical/sftp.c kitchen/sftp.c
  
  /* File to read commands from */
  FILE* infile;
-diff -rNuwpB canonical/ssh.c kitchen/ssh.c
---- canonical/ssh.c	2013-04-04 20:22:36.000000000 -0400
-+++ kitchen/ssh.c	2013-08-14 15:01:19.871516244 -0400
-@@ -574,6 +574,10 @@ main(int ac, char **av)
+diff --git a/ssh.c b/ssh.c
+index 1e6cb90..d69e047 100644
+--- a/ssh.c
++++ b/ssh.c
+@@ -773,6 +773,10 @@ main(int ac, char **av)
  			break;
  		case 'T':
  			options.request_tty = REQUEST_TTY_NO;
@@ -1980,8 +2041,8 @@ diff -rNuwpB canonical/ssh.c kitchen/ssh.c
 +			options.none_switch=0;
  			break;
  		case 'o':
- 			dummy = 1;
-@@ -998,6 +1002,8 @@ control_persist_detach(void)
+ 			line = xstrdup(optarg);
+@@ -1240,6 +1244,8 @@ control_persist_detach(void)
  	setproctitle("%s [mux]", options.control_path);
  }
  
@@ -1990,7 +2051,7 @@ diff -rNuwpB canonical/ssh.c kitchen/ssh.c
  /* Do fork() after authentication. Used by "ssh -f" */
  static void
  fork_postauth(void)
-@@ -1369,6 +1375,9 @@ ssh_session2_open(void)
+@@ -1611,6 +1617,9 @@ ssh_session2_open(void)
  {
  	Channel *c;
  	int window, packetmax, in, out, err;
@@ -2000,7 +2061,7 @@ diff -rNuwpB canonical/ssh.c kitchen/ssh.c
  
  	if (stdin_null_flag) {
  		in = open(_PATH_DEVNULL, O_RDONLY);
-@@ -1389,9 +1398,74 @@ ssh_session2_open(void)
+@@ -1631,9 +1640,74 @@ ssh_session2_open(void)
  	if (!isatty(err))
  		set_nonblock(err);
  
@@ -2076,7 +2137,7 @@ diff -rNuwpB canonical/ssh.c kitchen/ssh.c
  		window >>= 1;
  		packetmax >>= 1;
  	}
-@@ -1400,6 +1474,10 @@ ssh_session2_open(void)
+@@ -1642,6 +1716,10 @@ ssh_session2_open(void)
  	    window, packetmax, CHAN_EXTENDED_WRITE,
  	    "client-session", /*nonblock*/0);
  
@@ -2087,10 +2148,70 @@ diff -rNuwpB canonical/ssh.c kitchen/ssh.c
  	debug3("ssh_session2_open: channel_new: %d", c->self);
  
  	channel_send_open(c->self);
-diff -rNuwpB canonical/sshconnect2.c kitchen/sshconnect2.c
---- canonical/sshconnect2.c	2013-04-04 20:13:31.000000000 -0400
-+++ kitchen/sshconnect2.c	2013-08-14 15:01:19.872524491 -0400
-@@ -81,6 +81,12 @@
+diff --git a/sshconnect.c b/sshconnect.c
+index 573d7a8..9cf6947 100644
+--- a/sshconnect.c
++++ b/sshconnect.c
+@@ -263,6 +263,31 @@ ssh_kill_proxy_command(void)
+ }
+ 
+ /*
++ * Set TCP receive buffer if requested.
++ * Note: tuning needs to happen after the socket is
++ * created but before the connection happens
++ * so winscale is negotiated properly -cjr
++ */
++static void
++ssh_set_socket_recvbuf(int sock)
++{
++	void *buf = (void *)&options.tcp_rcv_buf;
++	int sz = sizeof(options.tcp_rcv_buf);
++	int socksize;
++	int socksizelen = sizeof(int);
++
++	debug("setsockopt Attempting to set SO_RCVBUF to %d", options.tcp_rcv_buf);
++	if (setsockopt(sock, SOL_SOCKET, SO_RCVBUF, buf, sz) >= 0) {
++	  getsockopt(sock, SOL_SOCKET, SO_RCVBUF, &socksize, &socksizelen);
++	  debug("setsockopt SO_RCVBUF: %.100s %d", strerror(errno), socksize);
++	}
++	else
++		error("Couldn't set socket receive buffer to %d: %.100s",
++		    options.tcp_rcv_buf, strerror(errno));
++}
++
++
++/*
+  * Creates a (possibly privileged) socket for use as the ssh connection.
+  */
+ static int
+@@ -278,6 +303,9 @@ ssh_create_socket(int privileged, struct addrinfo *ai)
+ 	}
+ 	fcntl(sock, F_SETFD, FD_CLOEXEC);
+ 
++	if (options.tcp_rcv_buf > 0)
++		ssh_set_socket_recvbuf(sock);
++
+ 	/* Bind the socket to an alternative local IP address */
+ 	if (options.bind_address == NULL && !privileged)
+ 		return sock;
+@@ -520,10 +548,10 @@ send_client_banner(int connection_out, int minor1)
+ 	/* Send our own protocol version identification. */
+ 	if (compat20) {
+ 		xasprintf(&client_version_string, "SSH-%d.%d-%.100s\r\n",
+-		    PROTOCOL_MAJOR_2, PROTOCOL_MINOR_2, SSH_VERSION);
++		    PROTOCOL_MAJOR_2, PROTOCOL_MINOR_2, SSH_RELEASE);
+ 	} else {
+ 		xasprintf(&client_version_string, "SSH-%d.%d-%.100s\n",
+-		    PROTOCOL_MAJOR_1, minor1, SSH_VERSION);
++		    PROTOCOL_MAJOR_1, minor1, SSH_RELEASE);
+ 	}
+ 	if (roaming_atomicio(vwrite, connection_out, client_version_string,
+ 	    strlen(client_version_string)) != strlen(client_version_string))
+diff --git a/sshconnect2.c b/sshconnect2.c
+index 7f4ff41..0aeaed6 100644
+--- a/sshconnect2.c
++++ b/sshconnect2.c
+@@ -79,6 +79,12 @@
  extern char *client_version_string;
  extern char *server_version_string;
  extern Options options;
@@ -2103,7 +2224,7 @@ diff -rNuwpB canonical/sshconnect2.c kitchen/sshconnect2.c
  
  /*
   * SSH2 key exchange
-@@ -421,6 +427,45 @@ ssh_userauth2(const char *local_user, co
+@@ -409,6 +415,45 @@ ssh_userauth2(const char *local_user, const char *server_user, char *host,
  	pubkey_cleanup(&authctxt);
  	dispatch_range(SSH2_MSG_USERAUTH_MIN, SSH2_MSG_USERAUTH_MAX, NULL);
  
@@ -2149,87 +2270,11 @@ diff -rNuwpB canonical/sshconnect2.c kitchen/sshconnect2.c
  	debug("Authentication succeeded (%s).", authctxt.method->name);
  }
  
-diff -rNuwpB canonical/sshconnect.c kitchen/sshconnect.c
---- canonical/sshconnect.c	2013-04-04 20:20:19.000000000 -0400
-+++ kitchen/sshconnect.c	2013-08-14 14:51:14.118519625 -0400
-@@ -189,6 +189,31 @@ ssh_kill_proxy_command(void)
- }
- 
- /*
-+ * Set TCP receive buffer if requested.
-+ * Note: tuning needs to happen after the socket is
-+ * created but before the connection happens
-+ * so winscale is negotiated properly -cjr
-+ */
-+static void
-+ssh_set_socket_recvbuf(int sock)
-+{
-+	void *buf = (void *)&options.tcp_rcv_buf;
-+	int sz = sizeof(options.tcp_rcv_buf);
-+	int socksize;
-+	int socksizelen = sizeof(int);
-+
-+	debug("setsockopt Attempting to set SO_RCVBUF to %d", options.tcp_rcv_buf);
-+	if (setsockopt(sock, SOL_SOCKET, SO_RCVBUF, buf, sz) >= 0) {
-+	  getsockopt(sock, SOL_SOCKET, SO_RCVBUF, &socksize, &socksizelen);
-+	  debug("setsockopt SO_RCVBUF: %.100s %d", strerror(errno), socksize);
-+	}
-+	else
-+		error("Couldn't set socket receive buffer to %d: %.100s",
-+		    options.tcp_rcv_buf, strerror(errno));
-+}
-+
-+
-+/*
-  * Creates a (possibly privileged) socket for use as the ssh connection.
-  */
- static int
-@@ -211,6 +236,8 @@ ssh_create_socket(int privileged, struct
- 			    strerror(errno));
- 		else
- 			debug("Allocated local port %d.", p);
-+		if (options.tcp_rcv_buf > 0)
-+			ssh_set_socket_recvbuf(sock);
- 		return sock;
- 	}
- 	sock = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
-@@ -220,6 +247,9 @@ ssh_create_socket(int privileged, struct
- 	}
- 	fcntl(sock, F_SETFD, FD_CLOEXEC);
- 
-+	if (options.tcp_rcv_buf > 0)
-+		ssh_set_socket_recvbuf(sock);
-+
- 	/* Bind the socket to an alternative local IP address */
- 	if (options.bind_address == NULL)
- 		return sock;
-@@ -442,10 +472,10 @@ send_client_banner(int connection_out, i
- 	/* Send our own protocol version identification. */
- 	if (compat20) {
- 		xasprintf(&client_version_string, "SSH-%d.%d-%.100s\r\n",
--		    PROTOCOL_MAJOR_2, PROTOCOL_MINOR_2, SSH_VERSION);
-+		    PROTOCOL_MAJOR_2, PROTOCOL_MINOR_2, SSH_RELEASE);
- 	} else {
- 		xasprintf(&client_version_string, "SSH-%d.%d-%.100s\n",
--		    PROTOCOL_MAJOR_1, minor1, SSH_VERSION);
-+		    PROTOCOL_MAJOR_1, minor1, SSH_RELEASE);
- 	}
- 	if (roaming_atomicio(vwrite, connection_out, client_version_string,
- 	    strlen(client_version_string)) != strlen(client_version_string))
-diff -rNuwpB canonical/sshd.c kitchen/sshd.c
---- canonical/sshd.c	2013-02-11 19:04:48.000000000 -0500
-+++ kitchen/sshd.c	2013-08-14 15:01:19.874513548 -0400
-@@ -138,6 +138,9 @@ int deny_severity;
- #define REEXEC_CONFIG_PASS_FD		(STDERR_FILENO + 3)
- #define REEXEC_MIN_FREE_FD		(STDERR_FILENO + 4)
- 
-+int myflag = 0;
-+
-+
- extern char *__progname;
- 
- /* Server configuration options. */
-@@ -430,7 +433,7 @@ sshd_exchange_identification(int sock_in
+diff --git a/sshd.c b/sshd.c
+index 7523de9..c80b5b1 100644
+--- a/sshd.c
++++ b/sshd.c
+@@ -436,7 +436,7 @@ sshd_exchange_identification(int sock_in, int sock_out)
  	}
  
  	xasprintf(&server_version_string, "SSH-%d.%d-%.100s%s%s%s",
@@ -2238,7 +2283,7 @@ diff -rNuwpB canonical/sshd.c kitchen/sshd.c
  	    *options.version_addendum == '\0' ? "" : " ",
  	    options.version_addendum, newline);
  
-@@ -482,6 +485,9 @@ sshd_exchange_identification(int sock_in
+@@ -489,6 +489,9 @@ sshd_exchange_identification(int sock_in, int sock_out)
  	}
  	debug("Client protocol version %d.%d; client software version %.100s",
  	    remote_major, remote_minor, remote_version);
@@ -2248,7 +2293,7 @@ diff -rNuwpB canonical/sshd.c kitchen/sshd.c
  
  	compat_datafellows(remote_version);
  
-@@ -1038,6 +1044,8 @@ server_listen(void)
+@@ -1082,6 +1085,8 @@ server_listen(void)
  	int ret, listen_sock, on = 1;
  	struct addrinfo *ai;
  	char ntop[NI_MAXHOST], strport[NI_MAXSERV];
@@ -2257,7 +2302,7 @@ diff -rNuwpB canonical/sshd.c kitchen/sshd.c
  
  	for (ai = options.listen_addrs; ai; ai = ai->ai_next) {
  		if (ai->ai_family != AF_INET && ai->ai_family != AF_INET6)
-@@ -1078,6 +1086,11 @@ server_listen(void)
+@@ -1122,6 +1127,11 @@ server_listen(void)
  
  		debug("Bind to port %s on %s.", strport, ntop);
  
@@ -2269,9 +2314,9 @@ diff -rNuwpB canonical/sshd.c kitchen/sshd.c
  		/* Bind the socket to the desired port. */
  		if (bind(listen_sock, ai->ai_addr, ai->ai_addrlen) < 0) {
  			error("Bind to port %s on %s failed: %.200s.",
-@@ -1976,6 +1989,9 @@ main(int ac, char **av)
- 	/* Log the connection. */
- 	verbose("Connection from %.500s port %d", remote_ip, remote_port);
+@@ -2058,6 +2068,9 @@ main(int ac, char **av)
+ 	    remote_ip, remote_port,
+ 	    get_local_ipaddr(sock_in), get_local_port());
  
 +	/* set the HPN options for the child */
 +	channel_set_hpn(options.hpn_disabled, options.hpn_buffer_size);
@@ -2279,7 +2324,7 @@ diff -rNuwpB canonical/sshd.c kitchen/sshd.c
  	/*
  	 * We don't want to listen forever unless the other side
  	 * successfully authenticates itself.  So we set up an alarm which is
-@@ -2076,6 +2092,23 @@ main(int ac, char **av)
+@@ -2160,6 +2173,23 @@ main(int ac, char **av)
  	    options.client_alive_count_max);
  
  	/* Start session. */
@@ -2303,12 +2348,7 @@ diff -rNuwpB canonical/sshd.c kitchen/sshd.c
  	do_authenticated(authctxt);
  
  	/* The connection has been terminated. */
-@@ -2332,9 +2365,15 @@ do_ssh2_kex(void)
- {
- 	Kex *kex;
- 
-+	myflag++;
-+	debug ("MYFLAG IS %d", myflag);
+@@ -2442,6 +2472,10 @@ do_ssh2_kex(void)
  	if (options.ciphers != NULL) {
  		myproposal[PROPOSAL_ENC_ALGS_CTOS] =
  		myproposal[PROPOSAL_ENC_ALGS_STOC] = options.ciphers;
@@ -2319,10 +2359,11 @@ diff -rNuwpB canonical/sshd.c kitchen/sshd.c
  	}
  	myproposal[PROPOSAL_ENC_ALGS_CTOS] =
  	    compat_cipher_proposal(myproposal[PROPOSAL_ENC_ALGS_CTOS]);
-diff -rNuwpB canonical/sshd_config kitchen/sshd_config
---- canonical/sshd_config	2013-02-11 19:02:09.000000000 -0500
-+++ kitchen/sshd_config	2013-08-14 14:51:18.689519706 -0400
-@@ -120,6 +120,20 @@ UsePrivilegeSeparation sandbox		# Defaul
+diff --git a/sshd_config b/sshd_config
+index e9045bc..33b0e4f 100644
+--- a/sshd_config
++++ b/sshd_config
+@@ -125,6 +125,20 @@ UsePrivilegeSeparation sandbox		# Default for new installations.
  # override default of no subsystems
  Subsystem	sftp	/usr/libexec/sftp-server
  
@@ -2343,13 +2384,15 @@ diff -rNuwpB canonical/sshd_config kitchen/sshd_config
  # Example of overriding settings on a per-user basis
  #Match User anoncvs
  #	X11Forwarding no
-diff -rNuwpB canonical/version.h kitchen/version.h
---- canonical/version.h	2013-05-10 02:02:21.000000000 -0400
-+++ kitchen/version.h	2013-08-14 15:27:40.885424412 -0400
-@@ -3,4 +3,5 @@
- #define SSH_VERSION	"OpenSSH_6.2"
+diff --git a/version.h b/version.h
+index a1579ac..a888806 100644
+--- a/version.h
++++ b/version.h
+@@ -3,4 +3,6 @@
+ #define SSH_VERSION	"OpenSSH_6.6"
  
- #define SSH_PORTABLE	"p2"
+ #define SSH_PORTABLE	"p1"
 -#define SSH_RELEASE	SSH_VERSION SSH_PORTABLE
-+#define SSH_HPN                "-hpn14v1"
++#define SSH_HPN         "-hpn14v5"
 +#define SSH_RELEASE	SSH_VERSION SSH_PORTABLE SSH_HPN
++
